@@ -1,4 +1,4 @@
-use std::fs;
+use aoc_2022::{get_example, get_input};
 
 #[derive(Debug, Copy, Clone)]
 enum Move {
@@ -21,7 +21,7 @@ fn main() {
     let score_acc = |acc, moves| acc + score(moves);
 
     // example
-    let input = fs::read_to_string("day2_example.txt").unwrap();
+    let input = get_example(2);
     let guide = make_guide(&input);
     let total = guide.iter().fold(0, score_acc);
 
@@ -31,7 +31,7 @@ fn main() {
     println!("{}", total2);
 
     // real input
-    let input = fs::read_to_string("day2.txt").unwrap();
+    let input = get_input(2);
     let guide = make_guide(&input);
     let total = guide.iter().fold(0, score_acc);
 
