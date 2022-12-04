@@ -1,5 +1,3 @@
-use aoc_2022::{get_example, get_input};
-
 struct Elf(Vec<i32>);
 
 impl Elf {
@@ -41,12 +39,12 @@ fn top3_elves(elves: &[Elf]) -> i32 {
 }
 
 fn main() {
-    let example = get_example(1);
+    let example = aoc_2022::example(1);
     let elves = get_elves(&example);
     println!("{}", max_elf(&elves));
     println!("{}", top3_elves(&elves));
 
-    let day1 = get_input(1);
+    let day1 = aoc_2022::input(1);
     let elves = get_elves(&day1);
     println!("{}", max_elf(&elves));
     println!("{}", top3_elves(&elves));

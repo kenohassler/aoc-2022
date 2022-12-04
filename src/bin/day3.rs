@@ -1,4 +1,3 @@
-use aoc_2022::{get_example, get_input};
 use itertools::Itertools;
 use std::{fmt::Display, usize};
 
@@ -91,13 +90,14 @@ fn find_badge(rs1: Rucksack, rs2: Rucksack, rs3: Rucksack) -> Item {
 fn main() {
     let item_adder = |sum, item: &Item| sum + item.priority();
     // example
-    let input = get_example(3);
+    let input = aoc_2022::example(3);
     let sum_dups = dups(&input).iter().fold(0, item_adder);
     let sum_badges = badges(&input).iter().fold(0, item_adder);
     println!("{sum_dups}");
     println!("{sum_badges}");
 
-    let input = get_input(3);
+    // real input
+    let input = aoc_2022::input(3);
     let sum_dups = dups(&input).iter().fold(0, item_adder);
     let sum_badges = badges(&input).iter().fold(0, item_adder);
     println!("{sum_dups}");

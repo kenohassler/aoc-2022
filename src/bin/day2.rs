@@ -1,5 +1,3 @@
-use aoc_2022::{get_example, get_input};
-
 #[derive(Debug, Copy, Clone)]
 enum Move {
     Rock = 1,
@@ -21,7 +19,7 @@ fn main() {
     let score_acc = |acc, moves| acc + score(moves);
 
     // example
-    let input = get_example(2);
+    let input = aoc_2022::example(2);
     let guide = make_guide(&input);
     let total = guide.iter().fold(0, score_acc);
 
@@ -31,7 +29,7 @@ fn main() {
     println!("{}", total2);
 
     // real input
-    let input = get_input(2);
+    let input = aoc_2022::input(2);
     let guide = make_guide(&input);
     let total = guide.iter().fold(0, score_acc);
 
