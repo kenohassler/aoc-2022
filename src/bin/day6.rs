@@ -18,13 +18,13 @@ fn find_marker_long(stream: &str, size: usize) -> usize {
         for j in 0..size - 1 {
             for k in j + 1..size {
                 if bytes[i + j] == bytes[i + k] {
-                    // one pair of chars unequal, continue to next window
+                    // one pair of chars equal, continue to next window
                     continue 'start;
                 }
             }
         }
         // all chars in this window unequal
-        println!("marker {} at {}", &stream[i..i+size], i+size);
+        println!("marker {} at {}", &stream[i..i + size], i + size);
         return i + size;
     }
     panic!("no marker found");
