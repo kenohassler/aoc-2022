@@ -80,6 +80,7 @@ impl Node {
         }
     }
 
+    #[allow(dead_code)]
     fn name(&self) -> &str {
         match self {
             Node::File { name, .. } | Node::Dir { name, .. } => name,
@@ -109,11 +110,9 @@ impl Node {
                     }
                     res.extend(node.borrow().subdirs())
                 }
-                return res;
+                res
             }
-            _ => {
-                return res;
-            }
+            _ => res,
         }
     }
 }
