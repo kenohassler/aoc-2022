@@ -1,21 +1,14 @@
-use std::{cell::RefCell, fmt, ops::Deref, rc::Rc};
+use std::{fmt, mem};
 
-#[derive(Debug)]
 enum Node {
-    File {
-        name: String,
-        size: u32,
-    },
-    Dir {
-        name: String,
-        contents: Vec<Rc<RefCell<Node>>>,
-    },
+    File { name: String, size: u32 },
+    Dir { name: String, contents: Vec<Node> },
 }
 
 impl Node {
-    fn new_root() -> Self {
+    fn new_dir(name: &str) -> Self {
         Node::Dir {
-            name: "/".to_owned(),
+            name: name.to_owned(),
             contents: Vec::new(),
         }
     }
@@ -27,7 +20,7 @@ impl Node {
                     name: name.to_owned(),
                     size,
                 };
-                contents.push(Rc::new(RefCell::new(new_file)));
+                contents.push(new_file);
             }
             _ => panic!("not a directory"),
         }
@@ -40,24 +33,18 @@ impl Node {
                     name: name.to_owned(),
                     contents: Vec::new(),
                 };
-                contents.push(Rc::new(RefCell::new(new_dir)));
+                contents.push(new_dir);
             }
             _ => panic!("not a directory"),
         }
     }
 
-    fn get_subdir(&self, name: &str) -> Option<Rc<RefCell<Node>>> {
+    fn subdir_mut(&mut self, name: &str) -> Option<&mut Node> {
         match self {
-            Node::Dir { contents, .. } => {
-                contents
-                    .iter()
-                    // closure returns true if node is a Dir and the name matches
-                    .find(|node: &&Rc<RefCell<Node>>| match node.borrow().deref() {
-                        Node::Dir { name: n, .. } => n == name,
-                        _ => false,
-                    })
-                    .cloned()
-            }
+            Node::Dir { contents, .. } => contents.iter_mut().find(|node| match node {
+                Node::Dir { name: n, .. } => n == name,
+                _ => false,
+            }),
             _ => panic!("not a directory"),
         }
     }
@@ -73,14 +60,13 @@ impl Node {
             Node::Dir { name, contents } => {
                 f.write_fmt(format_args!("- {} (dir)\n", name))?;
                 for n in contents {
-                    n.borrow().pretty_print(f, depth + 1)?;
+                    n.pretty_print(f, depth + 1)?;
                 }
                 Ok(())
             }
         }
     }
 
-    #[allow(dead_code)]
     fn name(&self) -> &str {
         match self {
             Node::File { name, .. } | Node::Dir { name, .. } => name,
@@ -93,22 +79,22 @@ impl Node {
             Node::Dir { contents, .. } => {
                 let mut size = 0;
                 for node in contents {
-                    size += node.borrow().size();
+                    size += node.size();
                 }
                 size
             }
         }
     }
 
-    fn subdirs(&self) -> Vec<Rc<RefCell<Node>>> {
+    fn subdirs_recursive(&self) -> Vec<&Node> {
         let mut res = Vec::new();
         match self {
             Node::Dir { contents, .. } => {
                 for node in contents {
-                    if let Node::Dir { .. } = node.borrow().deref() {
-                        res.push(node.clone());
+                    if let Node::Dir { .. } = node {
+                        res.push(node);
                     }
-                    res.extend(node.borrow().subdirs())
+                    res.extend(node.subdirs_recursive())
                 }
                 res
             }
@@ -121,6 +107,13 @@ impl fmt::Display for Node {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.pretty_print(f, 0)
     }
+}
+
+/// Replace cur_node with parent after inserting cur_node into parent.
+fn replace_subnode(mut parent: Node, cur_node: &mut Node) {
+    let subnode = parent.subdir_mut(cur_node.name()).unwrap();
+    mem::swap(subnode, cur_node);
+    *cur_node = parent;
 }
 
 fn main() {
@@ -147,9 +140,9 @@ fn sum_small_dirs(tree: &Node) -> u32 {
     // tree.subdirs().iter().for_each(|n| {
     //     println!("{}: total {}", n.borrow().name(), n.borrow().size());
     // });
-    tree.subdirs()
+    tree.subdirs_recursive()
         .iter()
-        .map(|n| n.borrow().size())
+        .map(|n| n.size())
         .filter(|n| *n < 100000)
         .sum()
 }
@@ -161,19 +154,19 @@ fn min_deletable_dir(tree: Node) -> u32 {
     let root_size = tree.size();
     assert!(root_size > NEEDED_SIZE);
     let size_delta = NEEDED_SIZE - (TOTAL_SIZE - root_size);
-    tree.subdirs()
+    tree.subdirs_recursive()
         .iter()
-        .map(|n| n.borrow().size())
+        .map(|n| n.size())
         .filter(|n| *n > size_delta)
         .min()
         .expect("At least one directory should be bigger than size_delta")
 }
 
 fn parse(input: &str) -> Node {
-    // we need this bc there are no backlinks as of now...
-    let mut dir_stack = Vec::new();
-    let root = Rc::new(RefCell::new(Node::new_root()));
-    dir_stack.push(root.clone());
+    // dir_stack owns nodes, subnodes are only inserted
+    // into their parents when the stack is unwound
+    let mut dir_stack = Vec::<Node>::new();
+    let mut cur_node = Node::new_dir("/");
 
     for ll in input.lines() {
         let mut words = ll.split_ascii_whitespace();
@@ -184,19 +177,18 @@ fn parse(input: &str) -> Node {
                     Some("cd") => {
                         match words.next() {
                             Some("..") => {
-                                dir_stack.pop();
+                                replace_subnode(dir_stack.pop().unwrap(), &mut cur_node);
                             }
                             Some("/") => {
-                                dir_stack.truncate(1);
+                                while let Some(parent) = dir_stack.pop() {
+                                    replace_subnode(parent, &mut cur_node);
+                                }
                             }
                             Some(name) => {
-                                // get subdir from current dir, push to dir stack
-                                let cur_dir = dir_stack.last().unwrap();
-                                let new_dir = cur_dir
-                                    .borrow()
-                                    .get_subdir(name)
-                                    .expect("cd directory should exist");
-                                dir_stack.push(new_dir);
+                                // push cur to dir stack
+                                let new_dir = Node::new_dir(name);
+                                dir_stack.push(cur_node);
+                                cur_node = new_dir;
                             }
                             None => panic!("cd command expects a parameter"),
                         }
@@ -210,15 +202,14 @@ fn parse(input: &str) -> Node {
             }
             Some(first) => {
                 // output
-                let cur_dir = dir_stack.last_mut().unwrap();
                 let name = words.next().expect("expected file name here");
                 match first {
                     "dir" => {
-                        cur_dir.borrow_mut().add_dir(name);
+                        cur_node.add_dir(name);
                     }
                     fsize => {
                         let size = fsize.parse().expect("expected file size here");
-                        cur_dir.borrow_mut().add_file(name, size);
+                        cur_node.add_file(name, size);
                     }
                 }
             }
@@ -227,6 +218,9 @@ fn parse(input: &str) -> Node {
         assert!(words.next().is_none())
     }
 
-    dir_stack.clear();
-    Rc::try_unwrap(root).unwrap().into_inner()
+    // unwind dir stack
+    while let Some(parent) = dir_stack.pop() {
+        replace_subnode(parent, &mut cur_node);
+    }
+    cur_node
 }
