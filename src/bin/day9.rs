@@ -50,51 +50,55 @@ impl Grid {
         }
     }
 
-    fn move_head(&mut self, instr: &str) {
-        let (dir, dist) = instr.split_once(' ').unwrap();
+    fn do_move(&mut self, instruction: &str) {
+        let (dir, dist) = instruction.split_once(' ').unwrap();
         let dist: usize = dist.parse().unwrap();
         let dir = Direction::from_str(dir);
 
         for _ in 0..dist {
-            match dir {
-                Direction::Up => {
-                    self.head.y += 1;
-                    // tail.y is equal, 1 below, or 2 below.
-                    if self.tail.y + 2 == self.head.y {
-                        // diagonal move if tail.x != head.x
-                        self.tail.y += 1;
-                        self.tail.x = self.head.x;
-                    }
-                }
-                Direction::Down => {
-                    self.head.y -= 1;
-                    // tail.y is equal, 1 above, or 2 above.
-                    if self.tail.y - 2 == self.head.y {
-                        // diagonal move if tail.x != head.x
-                        self.tail.y -= 1;
-                        self.tail.x = self.head.x;
-                    }
-                }
-                Direction::Left => {
-                    self.head.x -= 1;
-                    // tail.x is equal, 1 to the right, or 2 to the right.
-                    if self.tail.x - 2 == self.head.x {
-                        // diagonal move if tail.y != head.y
-                        self.tail.x -= 1;
-                        self.tail.y = self.head.y;
-                    }
-                }
-                Direction::Right => {
-                    self.head.x += 1;
-                    // tail.x is equal, 1 to the left, or 2 to the left.
-                    if self.tail.x + 2 == self.head.x {
-                        // diagonal move if tail.y != head.y
-                        self.tail.x += 1;
-                        self.tail.y = self.head.y;
-                    }
+            Grid::move_point(&mut self.head, &mut self.tail, &dir);
+            self.visited.insert(self.tail);
+        }
+    }
+
+    fn move_point(head: &mut Point, tail: &mut Point, dir: &Direction) {
+        match dir {
+            Direction::Up => {
+                head.y += 1;
+                // tail.y is equal, 1 below, or 2 below.
+                if tail.y + 2 == head.y {
+                    // diagonal move if tail.x != head.x
+                    tail.y += 1;
+                    tail.x = head.x;
                 }
             }
-            self.visited.insert(self.tail);
+            Direction::Down => {
+                head.y -= 1;
+                // tail.y is equal, 1 above, or 2 above.
+                if tail.y - 2 == head.y {
+                    // diagonal move if tail.x != head.x
+                    tail.y -= 1;
+                    tail.x = head.x;
+                }
+            }
+            Direction::Left => {
+                head.x -= 1;
+                // tail.x is equal, 1 to the right, or 2 to the right.
+                if tail.x - 2 == head.x {
+                    // diagonal move if tail.y != head.y
+                    tail.x -= 1;
+                    tail.y = head.y;
+                }
+            }
+            Direction::Right => {
+                head.x += 1;
+                // tail.x is equal, 1 to the left, or 2 to the left.
+                if tail.x + 2 == head.x {
+                    // diagonal move if tail.y != head.y
+                    tail.x += 1;
+                    tail.y = head.y;
+                }
+            }
         }
     }
 }
@@ -120,7 +124,7 @@ fn main() {
 fn parse(input: &str) {
     let mut g = Grid::new();
     for ll in input.lines() {
-        g.move_head(ll);
+        g.do_move(ll);
     }
     println!("{g}");
     println!("{}", g.visited.len());
