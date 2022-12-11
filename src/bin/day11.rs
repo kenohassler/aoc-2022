@@ -12,7 +12,9 @@ impl fmt::Display for Item {
 
 struct Monkey {
     items: VecDeque<Item>,
-    operation: Box<dyn Fn(&mut Item)>,
+    left: String,
+    right: String,
+    op: String,
     divisor: u64,
     monkey_true: usize,
     monkey_false: usize,
@@ -22,7 +24,7 @@ struct Monkey {
 impl Monkey {
     fn new(input: &str, idx: usize) -> Self {
         let mut lines = input.lines();
-        let mut line_helper = || lines.next().expect("id").split_once(':').unwrap();
+        let mut line_helper = || lines.next().unwrap().split_once(':').unwrap();
 
         // first line: monkey ID
         let id: usize = line_helper().0.split_once(' ').unwrap().1.parse().unwrap();
@@ -43,32 +45,11 @@ impl Monkey {
         let op = op_text.next().unwrap().to_owned();
         let right = op_text.next().unwrap().to_owned();
 
-        let op_fun = move |item: &mut Item| {
-            let left = match left.as_str() {
-                "old" => item.0,
-                num => num.parse().expect("Expected a number"),
-            };
-            let right = match right.as_str() {
-                "old" => item.0,
-                num => num.parse().expect("Expected a number"),
-            };
-            match op.as_str() {
-                "*" => item.0 = left * right,
-                "+" => item.0 = left + right,
-                e => panic!("unsupported operation: {e}"),
-            }
-        };
-        let operation = Box::new(op_fun);
-
         // fourth line: test
         let mut test_text = line_helper().1.split_ascii_whitespace();
         assert_eq!(test_text.next().unwrap(), "divisible");
         assert_eq!(test_text.next().unwrap(), "by");
-        let divisor = test_text
-            .next()
-            .unwrap()
-            .parse()
-            .expect("Expected a number");
+        let divisor = test_text.next().unwrap().parse().unwrap();
 
         // fifth line: monkey_true
         let monkey_true = line_helper()
@@ -90,11 +71,29 @@ impl Monkey {
 
         Monkey {
             items,
-            operation,
+            left,
+            right,
+            op,
             divisor,
             monkey_true,
             monkey_false,
             item_counter: 0,
+        }
+    }
+
+    fn operation(&self, item: &mut Item) {
+        let left = match self.left.as_str() {
+            "old" => item.0,
+            num => num.parse().expect("Expected a number"),
+        };
+        let right = match self.right.as_str() {
+            "old" => item.0,
+            num => num.parse().expect("Expected a number"),
+        };
+        match self.op.as_str() {
+            "*" => item.0 = left * right,
+            "+" => item.0 = left + right,
+            e => panic!("unsupported operation: {e}"),
         }
     }
 
@@ -110,7 +109,7 @@ impl Monkey {
     fn process_items(&mut self, all_monkeys: &[RefCell<Monkey>], modulus: Option<u64>) {
         while let Some(mut item) = self.items.pop_front() {
             // perform the monkey's calculation
-            (self.operation)(&mut item);
+            self.operation(&mut item);
 
             // decrease worry level (for part 1)
             if modulus.is_none() {
