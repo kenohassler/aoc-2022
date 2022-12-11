@@ -1,8 +1,8 @@
 use std::{cell::RefCell, collections::VecDeque, fmt, ops::DerefMut};
 
-use num_bigint::BigUint;
+use itertools::Itertools;
 
-struct Item(BigUint);
+struct Item(u64);
 
 impl fmt::Display for Item {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -13,51 +13,30 @@ impl fmt::Display for Item {
 struct Monkey {
     items: VecDeque<Item>,
     operation: Box<dyn Fn(&mut Item)>,
-    test: Box<dyn Fn(&Item) -> bool>,
+    divisor: u64,
     monkey_true: usize,
     monkey_false: usize,
-    item_counter: u32,
+    item_counter: u64,
 }
 
 impl Monkey {
     fn new(input: &str, idx: usize) -> Self {
         let mut lines = input.lines();
+        let mut line_helper = || lines.next().expect("id").split_once(":").unwrap();
+
         // first line: monkey ID
-        let id: usize = lines
-            .next()
-            .expect("id")
-            .split_once(":")
-            .unwrap()
-            .0
-            .split_once(" ")
-            .unwrap()
-            .1
-            .parse()
-            .unwrap();
+        let id: usize = line_helper().0.split_once(" ").unwrap().1.parse().unwrap();
         assert_eq!(id, idx);
 
         // second line: items
-        let items: VecDeque<Item> = lines
-            .next()
-            .expect("items")
-            .split_once(":")
-            .unwrap()
+        let items: VecDeque<Item> = line_helper()
             .1
             .split(",")
-            .map(|num| match num.trim().parse() {
-                Ok(i) => Item(i),
-                Err(_) => panic!("not a number: {num}"),
-            })
+            .map(|num| Item(num.trim().parse().unwrap()))
             .collect();
 
         // third line: operation
-        let mut op_text = lines
-            .next()
-            .expect("operation")
-            .split_once(":")
-            .unwrap()
-            .1
-            .split_ascii_whitespace();
+        let mut op_text = line_helper().1.split_ascii_whitespace();
         assert_eq!(op_text.next().unwrap(), "new");
         assert_eq!(op_text.next().unwrap(), "=");
         let left = op_text.next().unwrap().to_owned();
@@ -66,11 +45,11 @@ impl Monkey {
 
         let op_fun = move |item: &mut Item| {
             let left = match left.as_str() {
-                "old" => item.0.clone(),
+                "old" => item.0,
                 num => num.parse().expect("Expected a number"),
             };
             let right = match right.as_str() {
-                "old" => item.0.clone(),
+                "old" => item.0,
                 num => num.parse().expect("Expected a number"),
             };
             match op.as_str() {
@@ -82,29 +61,17 @@ impl Monkey {
         let operation = Box::new(op_fun);
 
         // fourth line: test
-        let mut test_text = lines
-            .next()
-            .expect("test")
-            .split_once(":")
-            .unwrap()
-            .1
-            .split_ascii_whitespace();
+        let mut test_text = line_helper().1.split_ascii_whitespace();
         assert_eq!(test_text.next().unwrap(), "divisible");
         assert_eq!(test_text.next().unwrap(), "by");
-        let num: u32 = test_text
+        let divisor = test_text
             .next()
             .unwrap()
             .parse()
             .expect("Expected a number");
-        let test_fun = move |item: &Item| -> bool { &item.0 % num == 0.try_into().unwrap() };
-        let test = Box::new(test_fun);
 
         // fifth line: monkey_true
-        let monkey_true = lines
-            .next()
-            .expect("monkey_true")
-            .split_once(":")
-            .unwrap()
+        let monkey_true = line_helper()
             .1
             .split_ascii_whitespace()
             .last()
@@ -113,11 +80,7 @@ impl Monkey {
             .unwrap();
 
         // sixth line: monkey_false
-        let monkey_false = lines
-            .next()
-            .expect("monkey_false")
-            .split_once(":")
-            .unwrap()
+        let monkey_false = line_helper()
             .1
             .split_ascii_whitespace()
             .last()
@@ -128,38 +91,45 @@ impl Monkey {
         Monkey {
             items,
             operation,
-            test,
+            divisor,
             monkey_true,
             monkey_false,
             item_counter: 0,
         }
     }
 
-    fn process_items(&mut self, all_monkeys: &[RefCell<Monkey>], decreasing: bool) {
+    fn test(&self, item: &mut Item, modulus: Option<u64>) -> bool {
+        // modular arithmetic limits size
+        if let Some(modulus) = modulus {
+            item.0 %= modulus;
+        }
+        // the actual test
+        item.0 % self.divisor == 0
+    }
+
+    fn process_items(&mut self, all_monkeys: &[RefCell<Monkey>], modulus: Option<u64>) {
         while let Some(mut item) = self.items.pop_front() {
-            // println!(
-            //     "  Monkey inspects an item with a worry level of {}.",
-            //     item.0
-            // );
+            // perform the monkey's calculation
             (self.operation)(&mut item);
-            // println!("    new worry level {}", item.0);
-            if decreasing {
-                item.0 /= 3u32;
-                // println!("    monkey bored, worry level {}", item.0);
+
+            // decrease worry level (for part 1)
+            if modulus.is_none() {
+                item.0 /= 3u64;
             }
-            if (self.test)(&item) {
+
+            // test divisibility (does modular reduction as well)
+            if self.test(&mut item, modulus) {
                 all_monkeys[self.monkey_true]
                     .borrow_mut()
                     .items
                     .push_back(item);
-                // println!("    item sent to {}", self.monkey_true);
             } else {
                 all_monkeys[self.monkey_false]
                     .borrow_mut()
                     .items
                     .push_back(item);
-                // println!("    item sent to {}", self.monkey_false);
             }
+
             self.item_counter += 1;
         }
     }
@@ -184,37 +154,72 @@ fn main() {
     let input = aoc_2022::input(11);
 
     let example_monkeys = parse(&example);
-    do_rounds(20, &example_monkeys, true);
-    println!();
+    let counts = do_rounds(20, &example_monkeys, true);
+    println!("{}", monkey_business(counts));
 
     let input_monkeys = parse(&input);
-    do_rounds(20, &input_monkeys, true);
-    println!();
+    let counts = do_rounds(20, &input_monkeys, true);
+    println!("{}", monkey_business(counts));
+
+    // part 2
+    let example_monkeys = parse(&example);
+    let counts = do_rounds(20, &example_monkeys, false);
+    println!("{}", monkey_business(counts));
 
     let example_monkeys = parse(&example);
-    do_rounds(20, &example_monkeys, false);
+    let counts = do_rounds(10000, &example_monkeys, false);
+    println!("{}", monkey_business(counts));
 
-    let example_monkeys = parse(&example);
-    do_rounds(1000, &example_monkeys, false);
+    let input_monkeys = parse(&input);
+    let counts = do_rounds(10000, &input_monkeys, false);
+    println!("{}", monkey_business(counts));
+}
+
+fn monkey_business(counts: Vec<u64>) -> u64 {
+    let mut sorted = counts.iter().sorted_unstable().rev();
+    let first = sorted.next().unwrap();
+    let second = sorted.next().unwrap();
+
+    first * second
 }
 
 fn parse(input: &str) -> Vec<RefCell<Monkey>> {
     let mut monkeys = Vec::new();
     for (idx, one_input) in input.split("\n\n").enumerate() {
         let monkey = RefCell::new(Monkey::new(one_input, idx));
-        //println!("{monkey:?}");
         monkeys.push(monkey);
     }
     monkeys
 }
 
-fn do_rounds(rounds: u32, monkeys: &[RefCell<Monkey>], decreasing: bool) {
-    for round in 0..rounds {
+/// Euclidean algorithm for gcd, used as proxy for least common multiple
+fn gcd(mut a: u64, mut b: u64) -> u64 {
+    while b != 0 {
+        let tmp = b;
+        b = a % b;
+        a = tmp;
+    }
+    a
+}
+
+fn do_rounds(rounds: usize, monkeys: &[RefCell<Monkey>], decreasing: bool) -> Vec<u64> {
+    let gcd = monkeys
+        .iter()
+        .map(|m| m.borrow().divisor)
+        .reduce(gcd)
+        .unwrap();
+    let modulus = match decreasing {
+        // fun fact: the divisors are all prime, so gcd is always 1 here -.-
+        true => None,
+        false => Some(monkeys.iter().map(|m| m.borrow().divisor).product::<u64>() / gcd),
+    };
+
+    for _round in 0..rounds {
         for monkey in monkeys {
             monkey
                 .borrow_mut()
                 .deref_mut()
-                .process_items(&monkeys, decreasing);
+                .process_items(&monkeys, modulus);
         }
 
         // pretty printing
@@ -234,4 +239,5 @@ fn do_rounds(rounds: u32, monkeys: &[RefCell<Monkey>], decreasing: bool) {
             monkey.borrow().item_counter
         );
     }
+    monkeys.iter().map(|m| m.borrow().item_counter).collect()
 }
