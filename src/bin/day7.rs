@@ -186,9 +186,8 @@ fn parse(input: &str) -> Node {
                             }
                             Some(name) => {
                                 // push cur to dir stack
-                                let new_dir = Node::new_dir(name);
                                 dir_stack.push(cur_node);
-                                cur_node = new_dir;
+                                cur_node = Node::new_dir(name);
                             }
                             None => panic!("cd command expects a parameter"),
                         }

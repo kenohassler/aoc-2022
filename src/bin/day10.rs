@@ -52,7 +52,8 @@ impl Crt {
         for iter in &self.cycles.iter().skip(1).chunks(40) {
             let mut line = String::new();
             for (i, x) in iter.enumerate() {
-                if *x == i as i32 || x - 1 == i as i32 || x + 1 == i as i32 {
+                let i: i32 = i.try_into().unwrap();
+                if *x == i || x - 1 == i || x + 1 == i {
                     line.push('#');
                 } else {
                     line.push('.');
