@@ -22,16 +22,16 @@ struct Monkey {
 impl Monkey {
     fn new(input: &str, idx: usize) -> Self {
         let mut lines = input.lines();
-        let mut line_helper = || lines.next().expect("id").split_once(":").unwrap();
+        let mut line_helper = || lines.next().expect("id").split_once(':').unwrap();
 
         // first line: monkey ID
-        let id: usize = line_helper().0.split_once(" ").unwrap().1.parse().unwrap();
+        let id: usize = line_helper().0.split_once(' ').unwrap().1.parse().unwrap();
         assert_eq!(id, idx);
 
         // second line: items
         let items: VecDeque<Item> = line_helper()
             .1
-            .split(",")
+            .split(',')
             .map(|num| Item(num.trim().parse().unwrap()))
             .collect();
 
@@ -139,7 +139,7 @@ impl fmt::Display for Monkey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut items = self.items.iter();
         if let Some(mut last) = items.next() {
-            while let Some(cur) = items.next() {
+            for cur in items {
                 write!(f, "{last}, ")?;
                 last = cur;
             }
@@ -219,7 +219,7 @@ fn do_rounds(rounds: usize, monkeys: &[RefCell<Monkey>], decreasing: bool) -> Ve
             monkey
                 .borrow_mut()
                 .deref_mut()
-                .process_items(&monkeys, modulus);
+                .process_items(monkeys, modulus);
         }
 
         // pretty printing
