@@ -1,3 +1,4 @@
+use anyhow::{bail, Context, Result};
 use itertools::Itertools;
 
 struct Crt {
@@ -5,10 +6,9 @@ struct Crt {
 }
 
 impl Crt {
-    fn new(instructions: &str) -> Self {
+    fn new(instructions: &str) -> Result<Self> {
         let mut x = 1;
-        let mut cycles = Vec::new();
-        cycles.push(x);
+        let mut cycles = vec![x];
 
         for ll in instructions.lines() {
             let mut words = ll.split_whitespace();
@@ -18,18 +18,17 @@ impl Crt {
                     cycles.push(x);
                     x += words
                         .next()
-                        .expect("addx expects an immediate value")
-                        .parse::<i32>()
-                        .unwrap();
+                        .context("addx expects an immediate value")?
+                        .parse::<i32>()?;
                 }
                 Some("noop") => {
                     cycles.push(x);
                 }
-                Some(e) => panic!("unsupported instruction: {e}"),
-                None => panic!("empty line"),
+                Some(e) => bail!("unsupported instruction: {e}"),
+                None => bail!("empty line"),
             }
         }
-        Self { cycles }
+        Ok(Self { cycles })
     }
 
     fn sig_strength(&self) {
@@ -52,7 +51,7 @@ impl Crt {
         for iter in &self.cycles.iter().skip(1).chunks(40) {
             let mut line = String::new();
             for (i, x) in iter.enumerate() {
-                let i: i32 = i.try_into().unwrap();
+                let i: i32 = i.try_into().unwrap(); // lines are len 40, should never fail
                 if *x == i || x - 1 == i || x + 1 == i {
                     line.push('#');
                 } else {
@@ -64,14 +63,16 @@ impl Crt {
     }
 }
 
-fn main() {
+fn main() -> Result<()> {
     let example = aoc_2022::example(10);
-    let crt = Crt::new(&example);
+    let crt = Crt::new(&example)?;
     crt.sig_strength();
     crt.draw();
 
     let input = aoc_2022::input(10);
-    let crt = Crt::new(&input);
+    let crt = Crt::new(&input)?;
     crt.sig_strength();
     crt.draw();
+
+    Ok(())
 }
