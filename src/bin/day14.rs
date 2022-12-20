@@ -1,4 +1,4 @@
-use anyhow::{ensure, Context, Result};
+use anyhow::{Context, Result};
 use itertools::Itertools;
 use std::{
     cmp::{max, min},
@@ -68,12 +68,12 @@ impl Grid {
         }
     }
 
-    fn add_line(&mut self, from: &Coord, to: &Coord) -> Result<()> {
+    fn add_line(&mut self, from: &Coord, to: &Coord) {
         if from.x != to.x {
+            // assuming from.y == to.y here (no diagonal lines)
             let start = min(from.x, to.x);
             let end = max(from.x, to.x);
             for i in start..end + 1 {
-                ensure!(from.y == to.y, "no diagonal lines allowed");
                 self.add_point(i, from.y)
             }
         } else {
@@ -84,7 +84,6 @@ impl Grid {
                 self.add_point(from.x, i)
             }
         }
-        Ok(())
     }
 
     fn add_point(&mut self, x: usize, y: usize) {
@@ -221,8 +220,7 @@ fn simulate_finite(mut g: Grid) {
     let ymax = g.0.len() + 1;
     let mut xmax = g.0[0].len() - 1;
     let mut xmin = g.x_min();
-    g.add_line(&Coord { x: xmin, y: ymax }, &Coord { x: xmax, y: ymax })
-        .unwrap();
+    g.add_line(&Coord { x: xmin, y: ymax }, &Coord { x: xmax, y: ymax });
 
     println!("=== INITIAL GRID ===\n{g}");
     let mut count = 0;
@@ -255,7 +253,7 @@ fn build_grid(input: &str) -> Result<Grid> {
         for coord in ll.split(" -> ") {
             let next = coord.parse::<Coord>()?;
             if let Some(last) = last {
-                g.add_line(&last, &next)?;
+                g.add_line(&last, &next);
             }
             last = Some(next);
         }
