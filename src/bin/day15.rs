@@ -54,7 +54,7 @@ impl Sensor {
     /// Returns the first and the last x coordinate covered in the given line.
     fn covered_bounds(&self, line: i32) -> Option<(i32, i32)> {
         let dist = line.abs_diff(self.position.y);
-        if self.range() > dist {
+        if self.range() >= dist {
             let width: i32 = (self.range() - dist).try_into().unwrap();
             let min = self.position.x - width;
             let max = self.position.x + width;
@@ -87,13 +87,13 @@ fn find_uncovered(sensors: &[Sensor], upper: i32) -> Option<Coord> {
         let mut lowest_uncovered = 0;
         for s in sensors {
             if let Some((min, max)) = s.covered_bounds(line) {
-                if min <= lowest_uncovered && lowest_uncovered < max {
+                if min <= lowest_uncovered && lowest_uncovered <= max {
                     lowest_uncovered = max + 1;
                 }
             }
         }
 
-        if lowest_uncovered < upper {
+        if lowest_uncovered <= upper {
             return Some(Coord::new(lowest_uncovered, line));
         }
     }
