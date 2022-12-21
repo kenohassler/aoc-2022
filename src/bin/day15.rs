@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use std::{collections::HashSet, str::FromStr};
+use std::{collections::HashSet, fmt, str::FromStr};
 
 struct Coord {
     x: i32,
@@ -9,6 +9,17 @@ struct Coord {
 impl Coord {
     fn new(x: i32, y: i32) -> Self {
         Coord { x, y }
+    }
+
+    fn freq(&self) -> Result<usize> {
+        let x_big: usize = TryInto::<usize>::try_into(self.x)? * 4000000;
+        Ok(x_big + TryInto::<usize>::try_into(self.y)?)
+    }
+}
+
+impl fmt::Debug for Coord {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("").field(&self.x).field(&self.y).finish()
     }
 }
 
@@ -40,17 +51,16 @@ impl Sensor {
         self.position.x.abs_diff(self.nearest.x) + self.position.y.abs_diff(self.nearest.y)
     }
 
-    fn covered(&self, line: i32) -> Vec<i32> {
+    /// Returns the first and the last x coordinate covered in the given line.
+    fn covered_bounds(&self, line: i32) -> Option<(i32, i32)> {
         let dist = line.abs_diff(self.position.y);
-        let mut res = Vec::new();
-        if let Some(num) = self.range().checked_sub(dist) {
-            res.push(self.position.x);
-            for i in 1..num + 1 {
-                res.push(self.position.x.checked_sub(i.try_into().unwrap()).unwrap());
-                res.push(self.position.x.checked_add(i.try_into().unwrap()).unwrap());
-            }
+        if self.range() > dist {
+            let width: i32 = (self.range() - dist).try_into().unwrap();
+            let min = self.position.x - width;
+            let max = self.position.x + width;
+            return Some((min, max));
         }
-        res
+        None
     }
 }
 
@@ -59,18 +69,43 @@ fn main() -> Result<()> {
     let sensors = parse(&example)?;
     let cov = covered_in_line(&sensors, 10);
     println!("{cov}");
+    let beacon = find_uncovered(&sensors, 20).context("beacon not found")?;
+    println!("{beacon:?} => freq {}", beacon.freq()?);
 
     let input = aoc_2022::input(15);
     let sensors = parse(&input)?;
     let cov = covered_in_line(&sensors, 2000000);
     println!("{cov}");
+    let beacon = find_uncovered(&sensors, 4000000).context("beacon not found")?;
+    println!("{beacon:?} => freq {}", beacon.freq()?);
+
     Ok(())
+}
+
+fn find_uncovered(sensors: &[Sensor], upper: i32) -> Option<Coord> {
+    for line in 0..upper + 1 {
+        let mut lowest_uncovered = 0;
+        for s in sensors {
+            if let Some((min, max)) = s.covered_bounds(line) {
+                if min <= lowest_uncovered && lowest_uncovered < max {
+                    lowest_uncovered = max + 1;
+                }
+            }
+        }
+
+        if lowest_uncovered < upper {
+            return Some(Coord::new(lowest_uncovered, line));
+        }
+    }
+    None
 }
 
 fn covered_in_line(sensors: &[Sensor], line: i32) -> usize {
     let mut covered = HashSet::new();
     for sensor in sensors {
-        covered.extend(sensor.covered(line));
+        if let Some((min, max)) = sensor.covered_bounds(line) {
+            covered.extend(min..max + 1);
+        }
     }
     for sensor in sensors {
         if sensor.nearest.y == line {
@@ -94,5 +129,6 @@ fn parse(example: &str) -> Result<Vec<Sensor>> {
             .context("expected 'at' between text and coordinates")?;
         sensors.push(Sensor::new(pos.parse()?, beacon.parse()?));
     }
+    sensors.sort_by(|ls, rs| ls.position.x.cmp(&rs.position.x));
     Ok(sensors)
 }
