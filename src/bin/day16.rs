@@ -6,8 +6,9 @@ use std::{
     io::Write,
     str::FromStr,
 };
+use std::hash::Hash;
 
-#[derive(PartialEq, Eq, Hash, Clone, Copy)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy, PartialOrd, Ord)]
 struct ValveId([u8; 2]);
 
 impl FromStr for ValveId {
@@ -124,6 +125,19 @@ impl PathState {
     }
 }
 
+struct ValveState {
+    /// The currently favoured path
+    flow: PathState,
+    /// Other paths to this node (that do not already open the valve)
+    alternatives: Vec<PathState>,
+}
+
+impl ValveState {
+    fn new(path: PathState) -> Self {
+        ValveState{flow: path, alternatives: Vec::new()}
+    }
+}
+
 impl fmt::Display for PathState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "open ")?;
@@ -187,13 +201,89 @@ fn main() -> Result<()> {
     let g = build_graph(&example)?;
     write_graph(&g, "example-graph")?;
     println!("{}", find_path(&g));
+    println!("{}", find_path_new(&g));
 
     let input = aoc_2022::input(16);
     let g = build_graph(&input)?;
     write_graph(&g, "input-graph")?;
     println!("{}", find_path(&g));
+    println!("{}", find_path_new(&g));
 
     Ok(())
+}
+
+fn find_path_new(g: &HashMap<ValveId, Valve>) -> u32 {
+    let mut history = Vec::with_capacity(30);
+    let mut start_state = HashMap::new();
+    let start_node: ValveId = "AA".parse().unwrap();
+    start_state.insert(start_node, ValveState::new(PathState::new()));
+
+    let mut last_state = &start_state;
+    for min in 0..30 {
+        let mut cur_state = HashMap::new();
+
+        for (v_id, v_state) in last_state {
+            let v = g.get(v_id).unwrap();
+
+            match v_state.flow.with_open(v) {
+                Some(with_open) => cur_state.insert(*v_id, ValveState::new(with_open)),
+                None =>
+                    cur_state.insert(*v_id, ValveState::new(v_state.flow.with_wait())),
+            };
+
+            // prune last round's alternatives
+            for alt in &v_state.alternatives {
+                // we know the valve is not yet open
+                let with_open = alt.with_open(v).unwrap();
+                // ToDo: use Entry instead
+                if with_open.eventual_flow() > cur_state.get(v_id).unwrap().flow.eventual_flow() {
+                    cur_state.get_mut(v_id).unwrap().flow = with_open;
+                }
+            }
+        }
+
+        for (v_id, v_state) in last_state {
+            let v = g.get(v_id).unwrap();
+
+            for n_id in &v.neighbours {
+                let with_move = v_state.flow.with_move(*n_id);
+                match cur_state.entry(*n_id) {
+                    Entry::Occupied(mut n_state) => {
+                        if with_move.eventual_flow() > n_state.get().flow.eventual_flow() {
+                            n_state.get_mut().flow = with_move;
+                        } else if !with_move.opened().contains(n_id){
+                            // if the neighbour is not yet opened, this might be an alternative path
+                            n_state.get_mut().alternatives.push(with_move);
+                        }
+                    }
+                    Entry::Vacant(n_state) => {
+                        n_state.insert(ValveState::new(with_move));
+                    }
+                }
+
+            }
+        }
+
+        history.push(cur_state);
+        last_state = history.last().unwrap();
+
+        // DEBUG
+        //eprintln!("new algo: == Minute {} ==", min + 1);
+        for v_id in last_state.keys().sorted() {
+            //eprintln!("{v_id:?}: {}", last_state.get(v_id).unwrap());
+        }
+        //eprintln!();
+    }
+
+    let mut best = last_state.get(&start_node).unwrap();
+    for v_state in last_state.values() {
+        if v_state.flow.flow_acc > best.flow.flow_acc {
+            best = v_state;
+        }
+    }
+    eprintln!("{:?}", best.flow);
+
+    best.flow.flow_acc
 }
 
 fn find_path(g: &HashMap<ValveId, Valve>) -> u32 {
@@ -204,7 +294,7 @@ fn find_path(g: &HashMap<ValveId, Valve>) -> u32 {
     for min in 0..30 {
         // clone here => preserve state of the last minute
         for (v_id, v_state) in state.clone() {
-            assert!(v_state.mins() == min);
+            assert_eq!(v_state.mins(), min);
 
             let v = g.get(v_id).unwrap();
             for n_id in &v.neighbours {
@@ -247,8 +337,8 @@ fn find_path(g: &HashMap<ValveId, Valve>) -> u32 {
 
         // DEBUG
         eprintln!("== Minute {} ==", min + 1);
-        for (v_id, v_state) in &state {
-            eprintln!("{v_id:?}: {v_state}");
+        for v_id in state.keys().sorted() {
+            eprintln!("{v_id:?}: {}", state.get(v_id).unwrap());
         }
         eprintln!();
     }
