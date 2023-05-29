@@ -41,13 +41,11 @@ impl fmt::Debug for ValveId {
 enum Action {
     MoveTo(ValveId),
     Open(ValveId),
-    Wait,
 }
 
 #[derive(Debug)]
 struct PathState {
     actions: Vec<Action>,
-    elephant_actions: Vec<Action>,
     minutes: u32,
     flow_cur: u32,
     flow_acc: u32,
@@ -58,7 +56,6 @@ impl Clone for PathState {
     fn clone(&self) -> Self {
         Self {
             actions: self.actions.clone(),
-            elephant_actions: self.elephant_actions.clone(),
             minutes: self.minutes + 1,
             flow_cur: self.flow_cur,
             flow_acc: self.flow_acc + self.flow_cur,
@@ -71,28 +68,10 @@ impl PathState {
     fn new() -> Self {
         PathState {
             actions: Vec::new(),
-            elephant_actions: Vec::new(),
             minutes: 0,
             flow_cur: 0,
             flow_acc: 0,
         }
-    }
-
-    fn teach_elephant(&mut self) {
-        let teaching = vec![Action::Wait, Action::Wait, Action::Wait, Action::Wait];
-        self.actions = teaching.clone();
-        self.elephant_actions = teaching;
-    }
-
-    fn add_elephant_move(&mut self, vid: ValveId) {
-        self.elephant_actions.push(Action::MoveTo(vid));
-    }
-
-    fn add_elephant_open(&mut self, v: &Valve) {
-        assert!(!self.is_open(&v.id), "cannot open an opened valve");
-
-        self.elephant_actions.push(Action::Open(v.id));
-        self.flow_cur += v.rate;
     }
 
     fn add_move(&mut self, v_id: ValveId) {
@@ -113,7 +92,6 @@ impl PathState {
     fn opened(&self) -> impl Iterator<Item = &ValveId> {
         self.actions
             .iter()
-            .chain(self.elephant_actions.iter())
             .filter_map(|a| match a {
                 Action::Open(vid) => Some(vid),
                 _ => None,
