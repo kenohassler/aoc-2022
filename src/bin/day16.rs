@@ -202,32 +202,15 @@ impl fmt::Display for PathState {
     }
 }
 
-fn main() -> Result<()> {
-    let example = aoc_2022::example(16);
-    let g = build_graph(&example)?;
-    write_graph(&g, "example-graph")?;
-    println!("{}", find_path_solo(&g));
-    println!("{}", find_path_elephant(&g));
-
-    let input = aoc_2022::input(16);
-    let g = build_graph(&input)?;
-    write_graph(&g, "input-graph")?;
-    println!("{}", find_path_solo(&g));
-    println!("{}", find_path_elephant(&g));
-
-    Ok(())
-}
-
 fn find_path_elephant(g: &HashMap<ValveId, Valve>) -> u32 {
     let start_node: ValveId = "AA".parse().unwrap();
-    let start_state = ValveState::new(PathState::new_elephant());
 
-    let mut best = start_state.clone();
-    let mut elephant_best = start_state.clone();
+    let mut human_best = PathState::new_elephant();
+    let mut elephant_best = PathState::new_elephant();
+    let mut max_flow = 0;
 
     let mut last_state = HashMap::new();
     last_state.insert(start_node, ValveState::new(PathState::new_elephant()));
-    let mut max_flow = 0;
     for min in 4..MAX_MINUTES {
         simulate_step(g, &mut last_state, min);
 
@@ -243,7 +226,7 @@ fn find_path_elephant(g: &HashMap<ValveId, Valve>) -> u32 {
             }
 
             let mut last_elephant_state = HashMap::new();
-            last_elephant_state.insert(start_node, start_state.clone());
+            last_elephant_state.insert(start_node, ValveState::new(PathState::new_elephant()));
             for jj in 4..min + 1 {
                 simulate_step(&g_clone, &mut last_elephant_state, jj);
             }
@@ -251,7 +234,7 @@ fn find_path_elephant(g: &HashMap<ValveId, Valve>) -> u32 {
             // calculate best elephant path for this round
             let mut round_elephant_best = last_elephant_state.get(&start_node).unwrap();
             for v_state in last_elephant_state.values() {
-                if v_state.path.flow_projected(g) > best.path.flow_projected(g) {
+                if v_state.path.flow_projected(g) > round_elephant_best.path.flow_projected(g) {
                     round_elephant_best = v_state;
                 }
             }
@@ -259,24 +242,24 @@ fn find_path_elephant(g: &HashMap<ValveId, Valve>) -> u32 {
             // if this is a new best overall, replace
             let elephant_flow = round_elephant_best.path.flow_projected(g);
             if elephant_flow + human_flow > max_flow {
-                elephant_best = round_elephant_best.clone();
-                best = v_state.clone();
+                elephant_best = round_elephant_best.path.clone();
+                human_best = v_state.path.clone();
                 max_flow = human_flow + elephant_flow;
             }
         }
     }
 
-    eprintln!("best: {}, elephant: {}", best.path, elephant_best.path);
-
-    // sum self + elephant
-    assert_eq!(
-        best.path
+    eprintln!("best: {}, elephant: {}", human_best, elephant_best);
+    debug_assert_eq!(
+        human_best
             .opened()
-            .filter(|v| elephant_best.path.opened().contains(v))
+            .filter(|v| elephant_best.opened().contains(v))
             .count(),
-        0
+        0,
+        "elephant and human must not open the same valves"
     );
-    best.path.flow_projected(g) + elephant_best.path.flow_projected(g)
+
+    max_flow
 }
 
 fn find_path_solo(g: &HashMap<ValveId, Valve>) -> u32 {
@@ -294,7 +277,7 @@ fn find_path_solo(g: &HashMap<ValveId, Valve>) -> u32 {
             best = v_state;
         }
     }
-    eprintln!("{:?}", best.path);
+    eprintln!("{}", best.path);
 
     best.path.total_flow(g)
 }
@@ -389,4 +372,53 @@ fn write_graph(g: &HashMap<ValveId, Valve>, name: &str) -> std::io::Result<()> {
     }
 
     Ok(())
+}
+
+fn main() -> Result<()> {
+    let example = aoc_2022::example(16);
+    let g = build_graph(&example)?;
+    write_graph(&g, "example-graph")?;
+    println!("{}", find_path_solo(&g));
+    println!("{}", find_path_elephant(&g));
+
+    let input = aoc_2022::input(16);
+    let g = build_graph(&input)?;
+    write_graph(&g, "input-graph")?;
+    println!("{}", find_path_solo(&g));
+    println!("{}", find_path_elephant(&g));
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::*;
+
+    #[test]
+    fn part1_example() {
+        let example = aoc_2022::example(16);
+        let g = build_graph(&example).unwrap();
+        assert_eq!(find_path_solo(&g), 1651);
+    }
+
+    #[test]
+    fn part1_input() {
+        let input = aoc_2022::input(16);
+        let g = build_graph(&input).unwrap();
+        assert_eq!(find_path_solo(&g), 1871);
+    }
+
+    #[test]
+    fn part2_example() {
+        let example = aoc_2022::example(16);
+        let g = build_graph(&example).unwrap();
+        assert_eq!(find_path_elephant(&g), 1707);
+    }
+
+    #[test]
+    fn part2_input() {
+        let input = aoc_2022::input(16);
+        let g = build_graph(&input).unwrap();
+        assert_eq!(find_path_elephant(&g), 2416);
+    }
 }
