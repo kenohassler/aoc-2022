@@ -37,114 +37,7 @@ impl fmt::Debug for ValveId {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
-enum Action {
-    MoveTo(ValveId),
-    Open(ValveId),
-}
-
-#[derive(Debug)]
-struct PathState {
-    actions: Vec<Action>,
-    minutes: u32,
-    flow_cur: u32,
-    flow_acc: u32,
-}
-
-impl Clone for PathState {
-    #[must_use]
-    fn clone(&self) -> Self {
-        Self {
-            actions: self.actions.clone(),
-            minutes: self.minutes + 1,
-            flow_cur: self.flow_cur,
-            flow_acc: self.flow_acc + self.flow_cur,
-        }
-    }
-}
-
-impl PathState {
-    #[must_use]
-    fn new() -> Self {
-        PathState {
-            actions: Vec::new(),
-            minutes: 0,
-            flow_cur: 0,
-            flow_acc: 0,
-        }
-    }
-
-    fn add_move(&mut self, v_id: ValveId) {
-        self.actions.push(Action::MoveTo(v_id));
-    }
-
-    fn add_open(&mut self, v: &Valve) {
-        assert!(!self.is_open(&v.id), "cannot open an opened valve");
-
-        self.actions.push(Action::Open(v.id));
-        self.flow_cur += v.rate;
-    }
-
-    fn is_open(&self, v_id: &ValveId) -> bool {
-        self.opened().contains(v_id)
-    }
-
-    fn opened(&self) -> impl Iterator<Item = &ValveId> {
-        self.actions
-            .iter()
-            .filter_map(|a| match a {
-                Action::Open(vid) => Some(vid),
-                _ => None,
-            })
-    }
-
-    fn flow_projected(&self) -> u32 {
-        let minutes_left = MAX_MINUTES - self.minutes;
-        self.flow_acc + minutes_left * self.flow_cur
-    }
-}
-
-struct ValveState {
-    /// The currently favoured path
-    path: PathState,
-    /// Other paths to this node (that do not already open the valve)
-    alternatives: Vec<PathState>,
-}
-
-impl ValveState {
-    fn new(path: PathState) -> Self {
-        ValveState {
-            path,
-            alternatives: Vec::new(),
-        }
-    }
-}
-
-impl fmt::Display for PathState {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "open ")?;
-        f.debug_list().entries(self.opened()).finish()?;
-        write!(
-            f,
-            "; flow {{current {}, total {}, estimated {}}}; ",
-            self.flow_cur,
-            self.flow_acc,
-            self.flow_projected()
-        )?;
-        match self.actions.last() {
-            Some(Action::MoveTo(vid)) => {
-                write!(f, "moved to {vid:?}")?;
-            }
-            Some(Action::Open(vid)) => {
-                write!(f, "opened {vid:?}")?;
-            }
-            _ => (),
-        }
-        Ok(())
-    }
-}
-
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct Valve {
     id: ValveId,
     neighbours: Vec<ValveId>,
@@ -178,100 +71,295 @@ impl FromStr for Valve {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+enum Action {
+    MoveTo(ValveId),
+    Open(ValveId),
+    Wait,
+}
+
+#[derive(Clone, Debug)]
+struct PathState {
+    actions: Vec<Action>,
+}
+
+impl PathState {
+    #[must_use]
+    fn new() -> Self {
+        PathState {
+            actions: Vec::new(),
+        }
+    }
+
+    #[must_use]
+    fn new_elephant() -> Self {
+        PathState {
+            actions: vec![Action::Wait; 4],
+        }
+    }
+
+    #[must_use]
+    fn with_move(&self, v_id: ValveId) -> Self {
+        let mut actions = self.actions.clone();
+        actions.push(Action::MoveTo(v_id));
+
+        Self { actions }
+    }
+
+    #[must_use]
+    fn with_open(&self, v: &Valve) -> Self {
+        assert!(!self.is_open(&v.id), "cannot open an opened valve");
+
+        let mut actions = self.actions.clone();
+        actions.push(Action::Open(v.id));
+
+        Self { actions }
+    }
+
+    #[must_use]
+    fn with_wait(&self) -> Self {
+        let mut actions = self.actions.clone();
+        actions.push(Action::Wait);
+
+        Self { actions }
+    }
+
+    fn is_open(&self, v_id: &ValveId) -> bool {
+        self.opened().contains(v_id)
+    }
+
+    fn opened(&self) -> impl Iterator<Item = &ValveId> {
+        self.actions.iter().filter_map(|a| match a {
+            Action::Open(vid) => Some(vid),
+            _ => None,
+        })
+    }
+
+    fn minutes(&self) -> u32 {
+        self.actions
+            .len()
+            .try_into()
+            .expect("should be between 0 and 30")
+    }
+
+    fn current_flow(&self, g: &HashMap<ValveId, Valve>) -> u32 {
+        self.opened()
+            .fold(0, |sum, v_id| sum + g.get(v_id).unwrap().rate)
+    }
+
+    fn total_flow(&self, g: &HashMap<ValveId, Valve>) -> u32 {
+        let mut cur_rate = 0;
+        let mut sum = 0;
+        for act in &self.actions {
+            sum += cur_rate;
+            if let Action::Open(v_id) = act {
+                cur_rate += g.get(&v_id).unwrap().rate;
+            }
+        }
+        sum
+    }
+
+    fn flow_projected(&self, g: &HashMap<ValveId, Valve>) -> u32 {
+        let minutes_left = MAX_MINUTES - self.minutes();
+        self.total_flow(g) + minutes_left * self.current_flow(g)
+    }
+}
+
+#[derive(Clone)]
+struct ValveState {
+    /// The currently favoured path
+    path: PathState,
+    /// Other paths to this node (that do not already open the valve)
+    alternatives: Vec<PathState>,
+}
+
+impl ValveState {
+    fn new(path: PathState) -> Self {
+        ValveState {
+            path,
+            alternatives: Vec::new(),
+        }
+    }
+}
+
+impl fmt::Display for PathState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "open ")?;
+        f.debug_list().entries(self.opened()).finish()?;
+
+        write!(f, "; history ")?;
+        let mut history = Vec::new();
+        let mut last_v = "AA".parse().unwrap();
+        for act in &self.actions {
+            if let Action::MoveTo(vid) = act {
+                last_v = *vid;
+            }
+            history.push(last_v);
+        }
+        f.debug_list().entries(history).finish()?;
+
+        Ok(())
+    }
+}
+
 fn main() -> Result<()> {
     let example = aoc_2022::example(16);
     let g = build_graph(&example)?;
     write_graph(&g, "example-graph")?;
-    println!("{}", find_path(&g));
+    println!("{}", find_path_solo(&g));
+    println!("{}", find_path_elephant(&g));
 
     let input = aoc_2022::input(16);
     let g = build_graph(&input)?;
     write_graph(&g, "input-graph")?;
-    println!("{}", find_path(&g));
+    println!("{}", find_path_solo(&g));
+    println!("{}", find_path_elephant(&g));
 
     Ok(())
 }
 
-fn find_path(g: &HashMap<ValveId, Valve>) -> u32 {
+fn find_path_elephant(g: &HashMap<ValveId, Valve>) -> u32 {
+    let start_node: ValveId = "AA".parse().unwrap();
+    let start_state = ValveState::new(PathState::new_elephant());
+
+    let mut best = start_state.clone();
+    let mut elephant_best = start_state.clone();
+
+    let mut last_state = HashMap::new();
+    last_state.insert(start_node, ValveState::new(PathState::new_elephant()));
+    let mut max_flow = 0;
+    for min in 4..MAX_MINUTES {
+        simulate_step(g, &mut last_state, min);
+
+        // iterate over best state for all nodes
+        for v_state in last_state.values() {
+            // calculate flow by human
+            let human_flow = v_state.path.flow_projected(g);
+
+            // graph without valves already opened by the human
+            let mut g_clone = g.clone();
+            for v_id in v_state.path.opened() {
+                g_clone.get_mut(v_id).unwrap().rate = 0;
+            }
+
+            let mut last_elephant_state = HashMap::new();
+            last_elephant_state.insert(start_node, start_state.clone());
+            for jj in 4..min + 1 {
+                simulate_step(&g_clone, &mut last_elephant_state, jj);
+            }
+
+            // calculate best elephant path for this round
+            let mut round_elephant_best = last_elephant_state.get(&start_node).unwrap();
+            for v_state in last_elephant_state.values() {
+                if v_state.path.flow_projected(g) > best.path.flow_projected(g) {
+                    round_elephant_best = v_state;
+                }
+            }
+
+            // if this is a new best overall, replace
+            let elephant_flow = round_elephant_best.path.flow_projected(g);
+            if elephant_flow + human_flow > max_flow {
+                elephant_best = round_elephant_best.clone();
+                best = v_state.clone();
+                max_flow = human_flow + elephant_flow;
+            }
+        }
+    }
+
+    eprintln!("best: {}, elephant: {}", best.path, elephant_best.path);
+
+    // sum self + elephant
+    assert_eq!(
+        best.path
+            .opened()
+            .filter(|v| elephant_best.path.opened().contains(v))
+            .count(),
+        0
+    );
+    best.path.flow_projected(g) + elephant_best.path.flow_projected(g)
+}
+
+fn find_path_solo(g: &HashMap<ValveId, Valve>) -> u32 {
     let mut last_state = HashMap::new();
     let start_node: ValveId = "AA".parse().unwrap();
     last_state.insert(start_node, ValveState::new(PathState::new()));
 
     for min in 0..MAX_MINUTES {
-        let mut cur_state = HashMap::new();
-
-        // first iteration: open valves
-        for (v_id, v_state) in &last_state {
-            debug_assert_eq!(v_state.path.minutes, min);
-            let v = g.get(v_id).unwrap();
-
-            let mut best_path = v_state.path.clone();
-            if !best_path.is_open(v_id) {
-                // open valve
-                best_path.add_open(v);
-            }
-
-            // check last round's alternatives
-            for alt_path in &v_state.alternatives {
-                // we know the valve is not yet open
-                let mut with_open = alt_path.clone();
-                with_open.add_open(v);
-
-                if with_open.flow_projected() > best_path.flow_projected() {
-                    best_path = with_open;
-                }
-            }
-
-            cur_state.insert(*v_id, ValveState::new(best_path));
-        }
-
-        // second iteration: move
-        for (v_id, v_state) in &last_state {
-            debug_assert_eq!(v_state.path.minutes, min);
-            let v = g.get(v_id).unwrap();
-
-            for n_id in &v.neighbours {
-                let mut with_move = v_state.path.clone();
-                with_move.add_move(*n_id);
-
-                // Move to the neighbour node if...
-                match cur_state.entry(*n_id) {
-                    Entry::Occupied(mut n_state) => {
-                        // ...our flow is bigger than the existing flow
-                        if with_move.flow_projected() > n_state.get().path.flow_projected() {
-                            n_state.get_mut().path = with_move;
-                        } else if !with_move.opened().contains(n_id) {
-                            // if the neighbour is not yet opened, this might be an alternative path
-                            n_state.get_mut().alternatives.push(with_move);
-                        }
-                    }
-                    Entry::Vacant(n_state) => {
-                        // ...or the neighbour has not yet been visited.
-                        n_state.insert(ValveState::new(with_move));
-                    }
-                }
-            }
-        }
-
-        last_state = cur_state;
-
-        // DEBUG
-        // eprintln!("new algo: == Minute {} ==", min + 1);
-        // for v_id in last_state.keys().sorted() {
-        //     eprintln!("{v_id:?}: {}", last_state.get(v_id).unwrap());
-        // }
-        // eprintln!();
+        simulate_step(g, &mut last_state, min);
     }
 
     let mut best = last_state.get(&start_node).unwrap();
     for v_state in last_state.values() {
-        if v_state.path.flow_acc > best.path.flow_acc {
+        if v_state.path.total_flow(g) > best.path.total_flow(g) {
             best = v_state;
         }
     }
     eprintln!("{:?}", best.path);
 
-    best.path.flow_acc
+    best.path.total_flow(g)
+}
+
+fn simulate_step(
+    g: &HashMap<ValveId, Valve>,
+    last_state: &mut HashMap<ValveId, ValveState>,
+    min: u32,
+) {
+    let mut cur_state = HashMap::new();
+
+    // first iteration: open valves
+    for (v_id, v_state) in &*last_state {
+        debug_assert_eq!(v_state.path.minutes(), min);
+        let v = g.get(v_id).unwrap();
+
+        let mut best_path;
+        if !v_state.path.is_open(v_id) && v.rate > 0 {
+            // open valve
+            best_path = v_state.path.with_open(v);
+        } else {
+            best_path = v_state.path.with_wait();
+        }
+
+        // check last round's alternatives
+        for alt_path in &v_state.alternatives {
+            // we know the valve is not yet open
+            let with_open = alt_path.with_open(v);
+
+            if with_open.flow_projected(g) > best_path.flow_projected(g) {
+                best_path = with_open;
+            }
+        }
+
+        cur_state.insert(*v_id, ValveState::new(best_path));
+    }
+
+    // second iteration: move
+    for (v_id, v_state) in &*last_state {
+        debug_assert_eq!(v_state.path.minutes(), min);
+        let v = g.get(v_id).unwrap();
+
+        for n_id in &v.neighbours {
+            let with_move = v_state.path.with_move(*n_id);
+
+            // Move to the neighbour node if...
+            match cur_state.entry(*n_id) {
+                Entry::Occupied(mut n_state) => {
+                    // ...our flow is bigger than the existing flow
+                    if with_move.flow_projected(g) > n_state.get().path.flow_projected(g) {
+                        n_state.get_mut().path = with_move;
+                    } else if !with_move.opened().contains(n_id) {
+                        // if the neighbour is not yet opened, this might be an alternative path
+                        n_state.get_mut().alternatives.push(with_move);
+                    }
+                }
+                Entry::Vacant(n_state) => {
+                    // ...or the neighbour has not yet been visited.
+                    n_state.insert(ValveState::new(with_move));
+                }
+            }
+        }
+    }
+
+    *last_state = cur_state;
 }
 
 fn build_graph(input: &str) -> Result<HashMap<ValveId, Valve>> {
