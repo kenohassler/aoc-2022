@@ -71,6 +71,52 @@ impl FromStr for Valve {
     }
 }
 
+#[derive(Clone)]
+struct Network {
+    map: HashMap<ValveId, Valve>,
+}
+
+impl Network {
+    fn build(input: &str) -> Result<Self> {
+        let mut valves_map = HashMap::new();
+        for ll in input.lines() {
+            let v: Valve = ll.parse()?;
+            valves_map.insert(v.id, v);
+        }
+
+        Ok(Self { map: valves_map })
+    }
+
+    fn node(&self, id: ValveId) -> Option<&Valve> {
+        self.map.get(&id)
+    }
+
+    // ToDo: remove
+    fn node_mut(&mut self, id: ValveId) -> Option<&mut Valve> {
+        self.map.get_mut(&id)
+    }
+
+    /// write the graph to disk in Trivial Graph Format for debugging
+    fn write_tgf(&self, name: &str) -> std::io::Result<()> {
+        let mut f = std::fs::File::create(name.to_owned() + ".tgf")?;
+
+        // list of nodes first
+        for (vid, v) in &self.map {
+            writeln!(f, "{vid:?} {vid:?},{}", v.rate)?;
+        }
+        // hashtag separator
+        writeln!(f, "#")?;
+        // list of edges
+        for (vid, v) in &self.map {
+            for n in &v.neighbours {
+                writeln!(f, "{vid:?} {n:?}")?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 enum Action {
     MoveTo(ValveId),
@@ -142,24 +188,24 @@ impl PathState {
             .expect("should be between 0 and 30")
     }
 
-    fn current_flow(&self, g: &HashMap<ValveId, Valve>) -> u32 {
+    fn current_flow(&self, g: &Network) -> u32 {
         self.opened()
-            .fold(0, |sum, v_id| sum + g.get(v_id).unwrap().rate)
+            .fold(0, |sum, v_id| sum + g.node(*v_id).unwrap().rate)
     }
 
-    fn total_flow(&self, g: &HashMap<ValveId, Valve>) -> u32 {
+    fn total_flow(&self, g: &Network) -> u32 {
         let mut cur_rate = 0;
         let mut sum = 0;
         for act in &self.actions {
             sum += cur_rate;
             if let Action::Open(v_id) = act {
-                cur_rate += g.get(&v_id).unwrap().rate;
+                cur_rate += g.node(*v_id).unwrap().rate;
             }
         }
         sum
     }
 
-    fn flow_projected(&self, g: &HashMap<ValveId, Valve>) -> u32 {
+    fn projected_flow(&self, g: &Network) -> u32 {
         let minutes_left = MAX_MINUTES - self.minutes();
         self.total_flow(g) + minutes_left * self.current_flow(g)
     }
@@ -202,7 +248,7 @@ impl fmt::Display for PathState {
     }
 }
 
-fn find_path_elephant(g: &HashMap<ValveId, Valve>) -> u32 {
+fn find_path_elephant(g: &Network) -> u32 {
     let start_node: ValveId = "AA".parse().unwrap();
 
     let mut human_best = PathState::new_elephant();
@@ -217,12 +263,12 @@ fn find_path_elephant(g: &HashMap<ValveId, Valve>) -> u32 {
         // iterate over best state for all nodes
         for v_state in last_state.values() {
             // calculate flow by human
-            let human_flow = v_state.path.flow_projected(g);
+            let human_flow = v_state.path.projected_flow(g);
 
             // graph without valves already opened by the human
             let mut g_clone = g.clone();
             for v_id in v_state.path.opened() {
-                g_clone.get_mut(v_id).unwrap().rate = 0;
+                g_clone.node_mut(*v_id).unwrap().rate = 0;
             }
 
             let mut last_elephant_state = HashMap::new();
@@ -234,13 +280,13 @@ fn find_path_elephant(g: &HashMap<ValveId, Valve>) -> u32 {
             // calculate best elephant path for this round
             let mut round_elephant_best = last_elephant_state.get(&start_node).unwrap();
             for v_state in last_elephant_state.values() {
-                if v_state.path.flow_projected(g) > round_elephant_best.path.flow_projected(g) {
+                if v_state.path.projected_flow(g) > round_elephant_best.path.projected_flow(g) {
                     round_elephant_best = v_state;
                 }
             }
 
             // if this is a new best overall, replace
-            let elephant_flow = round_elephant_best.path.flow_projected(g);
+            let elephant_flow = round_elephant_best.path.projected_flow(g);
             if elephant_flow + human_flow > max_flow {
                 elephant_best = round_elephant_best.path.clone();
                 human_best = v_state.path.clone();
@@ -262,7 +308,7 @@ fn find_path_elephant(g: &HashMap<ValveId, Valve>) -> u32 {
     max_flow
 }
 
-fn find_path_solo(g: &HashMap<ValveId, Valve>) -> u32 {
+fn find_path_solo(g: &Network) -> u32 {
     let mut last_state = HashMap::new();
     let start_node: ValveId = "AA".parse().unwrap();
     last_state.insert(start_node, ValveState::new(PathState::new()));
@@ -282,17 +328,13 @@ fn find_path_solo(g: &HashMap<ValveId, Valve>) -> u32 {
     best.path.total_flow(g)
 }
 
-fn simulate_step(
-    g: &HashMap<ValveId, Valve>,
-    last_state: &mut HashMap<ValveId, ValveState>,
-    min: u32,
-) {
+fn simulate_step(g: &Network, last_state: &mut HashMap<ValveId, ValveState>, min: u32) {
     let mut cur_state = HashMap::new();
 
     // first iteration: open valves
     for (v_id, v_state) in &*last_state {
         debug_assert_eq!(v_state.path.minutes(), min);
-        let v = g.get(v_id).unwrap();
+        let v = g.node(*v_id).unwrap();
 
         let mut best_path;
         if !v_state.path.is_open(v_id) && v.rate > 0 {
@@ -307,7 +349,7 @@ fn simulate_step(
             // we know the valve is not yet open
             let with_open = alt_path.with_open(v);
 
-            if with_open.flow_projected(g) > best_path.flow_projected(g) {
+            if with_open.projected_flow(g) > best_path.projected_flow(g) {
                 best_path = with_open;
             }
         }
@@ -318,7 +360,7 @@ fn simulate_step(
     // second iteration: move
     for (v_id, v_state) in &*last_state {
         debug_assert_eq!(v_state.path.minutes(), min);
-        let v = g.get(v_id).unwrap();
+        let v = g.node(*v_id).unwrap();
 
         for n_id in &v.neighbours {
             let with_move = v_state.path.with_move(*n_id);
@@ -327,7 +369,7 @@ fn simulate_step(
             match cur_state.entry(*n_id) {
                 Entry::Occupied(mut n_state) => {
                     // ...our flow is bigger than the existing flow
-                    if with_move.flow_projected(g) > n_state.get().path.flow_projected(g) {
+                    if with_move.projected_flow(g) > n_state.get().path.projected_flow(g) {
                         n_state.get_mut().path = with_move;
                     } else if !with_move.opened().contains(n_id) {
                         // if the neighbour is not yet opened, this might be an alternative path
@@ -345,45 +387,16 @@ fn simulate_step(
     *last_state = cur_state;
 }
 
-fn build_graph(input: &str) -> Result<HashMap<ValveId, Valve>> {
-    let mut valves_map = HashMap::new();
-    for ll in input.lines() {
-        let v: Valve = ll.parse()?;
-        valves_map.insert(v.id, v);
-    }
-    Ok(valves_map)
-}
-
-/// write the graph to disk in Trivial Graph Format for debugging
-fn write_graph(g: &HashMap<ValveId, Valve>, name: &str) -> std::io::Result<()> {
-    let mut f = std::fs::File::create(name.to_owned() + ".tgf")?;
-
-    // list of nodes first
-    for (vid, v) in g {
-        writeln!(f, "{vid:?} {vid:?},{}", v.rate)?;
-    }
-    // hashtag separator
-    writeln!(f, "#")?;
-    // list of edges
-    for (vid, v) in g {
-        for n in &v.neighbours {
-            writeln!(f, "{vid:?} {n:?}")?;
-        }
-    }
-
-    Ok(())
-}
-
 fn main() -> Result<()> {
     let example = aoc_2022::example(16);
-    let g = build_graph(&example)?;
-    write_graph(&g, "example-graph")?;
+    let g = Network::build(&example)?;
+    g.write_tgf("example-graph")?;
     println!("{}", find_path_solo(&g));
     println!("{}", find_path_elephant(&g));
 
     let input = aoc_2022::input(16);
-    let g = build_graph(&input)?;
-    write_graph(&g, "input-graph")?;
+    let g = Network::build(&input)?;
+    g.write_tgf("input-graph")?;
     println!("{}", find_path_solo(&g));
     println!("{}", find_path_elephant(&g));
 
@@ -397,28 +410,28 @@ mod tests {
     #[test]
     fn part1_example() {
         let example = aoc_2022::example(16);
-        let g = build_graph(&example).unwrap();
+        let g = Network::build(&example).unwrap();
         assert_eq!(find_path_solo(&g), 1651);
     }
 
     #[test]
     fn part1_input() {
         let input = aoc_2022::input(16);
-        let g = build_graph(&input).unwrap();
+        let g = Network::build(&input).unwrap();
         assert_eq!(find_path_solo(&g), 1871);
     }
 
     #[test]
     fn part2_example() {
         let example = aoc_2022::example(16);
-        let g = build_graph(&example).unwrap();
+        let g = Network::build(&example).unwrap();
         assert_eq!(find_path_elephant(&g), 1707);
     }
 
     #[test]
     fn part2_input() {
         let input = aoc_2022::input(16);
-        let g = build_graph(&input).unwrap();
+        let g = Network::build(&input).unwrap();
         assert_eq!(find_path_elephant(&g), 2416);
     }
 }
