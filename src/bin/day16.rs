@@ -5,7 +5,7 @@ use std::{collections::HashMap, fmt, io::Write, str::FromStr};
 
 const MAX_MINUTES: u32 = 30;
 
-#[derive(Debug, Clone, Copy, Eq)]
+#[derive(Debug, Clone, Eq)]
 struct ValveId {
     id: Option<usize>,
     label: [u8; 2],
@@ -92,7 +92,7 @@ impl Network {
         let mut valves_map = HashMap::new();
         for ll in input.lines() {
             let v: Valve = ll.parse()?;
-            valves_map.insert(v.id, v);
+            valves_map.insert(v.id.clone(), v);
         }
 
         let mut valves_vec = Vec::new();
@@ -153,7 +153,7 @@ impl Network {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 enum Action {
     MoveTo(ValveId),
     Open(ValveId),
@@ -181,9 +181,9 @@ impl PathState {
     }
 
     #[must_use]
-    fn with_move(&self, v_id: ValveId) -> Self {
+    fn with_move(&self, v_id: &ValveId) -> Self {
         let mut actions = self.actions.clone();
-        actions.push(Action::MoveTo(v_id));
+        actions.push(Action::MoveTo(v_id.clone()));
 
         Self { actions }
     }
@@ -193,7 +193,7 @@ impl PathState {
         assert!(!self.is_open(v.id.numeric()), "cannot open an opened valve");
 
         let mut actions = self.actions.clone();
-        actions.push(Action::Open(v.id));
+        actions.push(Action::Open(v.id.clone()));
 
         Self { actions }
     }
@@ -272,10 +272,11 @@ impl fmt::Display for PathState {
         }
 
         write!(f, "\thistory: ")?;
-        let mut last_v = "AA".parse().unwrap();
+        let start_v = "AA".parse().unwrap();
+        let mut last_v = &start_v;
         for act in &self.actions {
             if let Action::MoveTo(vid) = act {
-                last_v = *vid;
+                last_v = vid;
             }
             write!(f, "{} ", last_v)?;
         }
@@ -400,7 +401,7 @@ fn simulate_step(g: &Network, last_state: &mut Vec<Option<ValveState>>, min: u32
             let v = g.node(v_id).unwrap();
 
             for n_id in &v.neighbours {
-                let with_move = v_state.path.with_move(*n_id);
+                let with_move = v_state.path.with_move(n_id);
 
                 // Move to the neighbour node if...
                 match cur_state[n_id.numeric()].as_mut() {
